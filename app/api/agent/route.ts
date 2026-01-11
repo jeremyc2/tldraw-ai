@@ -39,9 +39,10 @@ Return ONLY valid JSON (no markdown, no commentary).
 Schema (strict):
 {
   "actions": [
-    {"_type":"create_shape","shape":{"kind":"geo","geo":"rectangle"|"ellipse"|"triangle"|"diamond"|"cloud"|"hexagon"|"star","x":number,"y":number,"w"?:number,"h"?:number,"label"?:string,"color"?:string}},
-    {"_type":"create_shape","shape":{"kind":"text","x":number,"y":number,"w"?:number,"text":string,"color"?:string}},
-    {"_type":"create_shape","shape":{"kind":"arrow","start":{"x":number,"y":number},"end":{"x":number,"y":number},"color"?:string,"label"?:string}},
+    {"_type":"create_shape","shape":{"kind":"geo","id"?:string,"geo":"rectangle"|"ellipse"|"triangle"|"diamond"|"cloud"|"hexagon"|"star","x":number,"y":number,"w"?:number,"h"?:number,"label"?:string,"color"?:string}},
+    {"_type":"create_shape","shape":{"kind":"text","id"?:string,"x":number,"y":number,"w"?:number,"text":string,"color"?:string}},
+    {"_type":"create_shape","shape":{"kind":"arrow","id"?:string,"start":{"x":number,"y":number},"end":{"x":number,"y":number},"color"?:string,"label"?:string,
+      "bindings"?: [{"terminal":"start"|"end","toId":string,"normalizedAnchor"?:{"x":number,"y":number},"isExact"?:boolean,"isPrecise"?:boolean}] }},
     {"_type":"update_shape","id":string,"patch":{"x"?:number,"y"?:number,"props"?:object}},
     {"_type":"delete_shape","id":string},
     {"_type":"select","ids":string[]}
@@ -51,6 +52,7 @@ Schema (strict):
 
 Rules:
 - Use existing shape ids from CANVAS_STATE when updating/deleting/selecting.
+- If you create multiple shapes that reference each other (e.g. arrows bound to boxes), provide stable ids via shape.id so bindings can refer to them.
 - Prefer small numbers of actions.
 - If the request is ambiguous, return an empty actions array and explain in notes.
 
@@ -98,6 +100,28 @@ function validatePlan(plan: unknown): AgentPlan {
       case "create_shape": {
         if (!isObject(action.shape) || typeof action.shape.kind !== "string") {
           throw new Error("create_shape.shape is invalid");
+        }
+
+        // Optional additional validation for arrow bindings.
+        if (action.shape.kind === "arrow") {
+          if ("bindings" in action.shape && action.shape.bindings != null) {
+            if (!Array.isArray(action.shape.bindings)) {
+              throw new Error("create_shape.shape.bindings must be an array");
+            }
+            for (const b of action.shape.bindings) {
+              if (!isObject(b)) {
+                throw new Error(
+                  "Invalid binding in create_shape.shape.bindings",
+                );
+              }
+              if (b.terminal !== "start" && b.terminal !== "end") {
+                throw new Error("binding.terminal must be 'start' or 'end'");
+              }
+              if (typeof b.toId !== "string") {
+                throw new Error("binding.toId must be a string");
+              }
+            }
+          }
         }
         break;
       }

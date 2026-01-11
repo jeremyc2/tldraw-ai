@@ -1,6 +1,16 @@
-import type { Editor, TLShapeId } from "tldraw";
+import type { Editor, TLArrowBinding, TLShapeId } from "tldraw";
 import { createShapeId, toRichText } from "tldraw";
 import { MAX_SHAPES_FOR_AGENT } from "@/app/_constants/agent";
+
+type AgentArrowBinding = {
+  terminal: TLArrowBinding["props"]["terminal"];
+  /** The id of the shape this arrow terminal is bound to. */
+  toId: string;
+  /** In [0..1] x [0..1], relative to the bound shape's page bounds. */
+  normalizedAnchor?: { x: number; y: number };
+  isExact?: boolean;
+  isPrecise?: boolean;
+};
 
 export type AgentResponse = {
   actions: AgentAction[];
@@ -13,6 +23,8 @@ export type AgentAction =
       shape:
         | {
             kind: "geo";
+            /** Optional stable id (lets later actions reference this shape). */
+            id?: string;
             geo:
               | "rectangle"
               | "ellipse"
@@ -30,6 +42,8 @@ export type AgentAction =
           }
         | {
             kind: "text";
+            /** Optional stable id (lets later actions reference this shape). */
+            id?: string;
             x: number;
             y: number;
             w?: number;
@@ -38,10 +52,17 @@ export type AgentAction =
           }
         | {
             kind: "arrow";
+            /** Optional stable id (lets later actions reference this shape). */
+            id?: string;
             start: { x: number; y: number };
             end: { x: number; y: number };
             color?: string;
             label?: string;
+            /**
+             * Optional tldraw-style bindings for arrow terminals.
+             * Each binding corresponds to a TLArrowBinding record (type: "arrow").
+             */
+            bindings?: AgentArrowBinding[];
           };
     }
   | {
@@ -65,17 +86,62 @@ export function getCanvasStateForAgent(
     .getCurrentPageShapes()
     .filter((s) => !exclude.has(s.type));
 
-  return shapes.slice(0, MAX_SHAPES_FOR_AGENT).map((shape) => ({
-    id: shape.id,
-    type: shape.type,
-    x: shape.x,
-    y: shape.y,
-    props: isObject(shape.props) ? shape.props : {},
-  }));
+  return shapes.slice(0, MAX_SHAPES_FOR_AGENT).map((shape) => {
+    const base = {
+      id: shape.id,
+      type: shape.type,
+      x: shape.x,
+      y: shape.y,
+      props: isObject(shape.props) ? shape.props : {},
+    };
+
+    if (shape.type !== "arrow") return base;
+
+    // Include arrow bindings so the agent can describe / edit connections using tldraw's model.
+    const bindings = editor
+      .getBindingsFromShape<TLArrowBinding>(shape.id, "arrow")
+      .map(
+        (b) =>
+          ({
+            terminal: b.props.terminal,
+            toId: b.toId,
+            normalizedAnchor: b.props.normalizedAnchor,
+            isExact: b.props.isExact,
+            isPrecise: b.props.isPrecise,
+          }) satisfies AgentArrowBinding,
+      );
+
+    return {
+      ...base,
+      bindings,
+    };
+  });
 }
 
 function toShapeId(id: string): TLShapeId {
   return id as TLShapeId;
+}
+
+function ensureShapeId(id: string): TLShapeId {
+  if (id.startsWith("shape:")) return id as TLShapeId;
+  return createShapeId(id);
+}
+
+function clamp(n: number) {
+  return Math.min(1, Math.max(0, n));
+}
+
+function getNormalizedAnchorFromPoint(
+  editor: Editor,
+  targetId: TLShapeId,
+  pagePoint: { x: number; y: number },
+): { x: number; y: number } {
+  const bounds = editor.getShapePageBounds(targetId);
+  if (!bounds || bounds.w === 0 || bounds.h === 0) return { x: 0.5, y: 0.5 };
+  return {
+    x: clamp((pagePoint.x - bounds.x) / bounds.w),
+    y: clamp((pagePoint.y - bounds.y) / bounds.h),
+  };
 }
 
 export function applyAgentActions(editor: Editor, actions: AgentAction[]) {
@@ -83,7 +149,9 @@ export function applyAgentActions(editor: Editor, actions: AgentAction[]) {
     for (const action of actions) {
       if (action._type === "create_shape") {
         if (action.shape.kind === "geo") {
-          const id = createShapeId();
+          const id = action.shape.id
+            ? ensureShapeId(action.shape.id)
+            : createShapeId();
           editor.createShape({
             id,
             type: "geo",
@@ -108,7 +176,9 @@ export function applyAgentActions(editor: Editor, actions: AgentAction[]) {
         }
 
         if (action.shape.kind === "text") {
-          const id = createShapeId();
+          const id = action.shape.id
+            ? ensureShapeId(action.shape.id)
+            : createShapeId();
           editor.createShape({
             id,
             type: "text",
@@ -129,20 +199,26 @@ export function applyAgentActions(editor: Editor, actions: AgentAction[]) {
         }
 
         if (action.shape.kind === "arrow") {
-          const id = createShapeId();
+          const id = action.shape.id
+            ? ensureShapeId(action.shape.id)
+            : createShapeId();
+
+          const start = action.shape.start;
+          const end = action.shape.end;
+
           editor.createShape({
             id,
             type: "arrow",
-            x: action.shape.start.x,
-            y: action.shape.start.y,
+            x: start.x,
+            y: start.y,
             props: {
               start: {
                 x: 0,
                 y: 0,
               },
               end: {
-                x: action.shape.end.x - action.shape.start.x,
-                y: action.shape.end.y - action.shape.start.y,
+                x: end.x - start.x,
+                y: end.y - start.y,
               },
               arrowheadStart: "none",
               arrowheadEnd: "arrow",
@@ -154,6 +230,36 @@ export function applyAgentActions(editor: Editor, actions: AgentAction[]) {
               richText: toRichText(action.shape.label ?? ""),
             },
           });
+
+          // Apply tldraw arrow bindings (terminal -> shape) if provided.
+          const bindings = action.shape.bindings ?? [];
+          for (const binding of bindings) {
+            const targetId = ensureShapeId(binding.toId);
+            const target = editor.getShape(targetId);
+            if (!target) continue;
+            if (target.type === "agent-prompt") continue;
+
+            const normalizedAnchor =
+              binding.normalizedAnchor ??
+              getNormalizedAnchorFromPoint(
+                editor,
+                targetId,
+                binding.terminal === "start" ? start : end,
+              );
+
+            editor.createBinding<TLArrowBinding>({
+              type: "arrow",
+              fromId: id,
+              toId: targetId,
+              props: {
+                terminal: binding.terminal,
+                normalizedAnchor,
+                isExact: binding.isExact ?? false,
+                isPrecise: binding.isPrecise ?? true,
+              },
+            });
+          }
+
           continue;
         }
       }

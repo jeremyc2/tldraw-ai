@@ -81,6 +81,10 @@ export class AgentPromptShapeUtil extends BaseBoxShapeUtil<AgentPromptShape> {
   static override type = "agent-prompt" as const;
   static override props = agentPromptShapeProps;
 
+  override canBind() {
+    return false;
+  }
+
   override getDefaultProps(): AgentPromptShape["props"] {
     return {
       w: 420,
