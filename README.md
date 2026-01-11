@@ -42,7 +42,7 @@ curl https://cursor.com/install -fsS | bash
 bun install
 
 # Start development server
-bun run dev
+bun dev
 ```
 
 The application will be available at `http://localhost:3000`.
@@ -63,10 +63,10 @@ bun start
 
 ```bash
 # Lint and format code
-bun run lint
+bun lint
 
 # Format code
-bun run format
+bun format
 ```
 
 ### Usage
