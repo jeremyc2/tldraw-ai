@@ -169,7 +169,10 @@ export class AgentPromptShapeUtil extends BaseBoxShapeUtil<AgentPromptShape> {
             onKeyDownCapture={stopEvent}
             onKeyUpCapture={stopEvent}
             onKeyDown={stopEvent}
-            className="select-text min-h-0 w-full flex-1 resize-none rounded-lg border border-black/10 bg-white px-3 py-2 text-sm leading-snug text-zinc-900 outline-none placeholder:text-zinc-500/80 focus:border-zinc-400 focus:ring-2 focus:ring-black/10 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-100 dark:placeholder:text-zinc-400/80 dark:focus:border-zinc-400/60 dark:focus:ring-white/10"
+            className={cn(
+              "select-text min-h-0 w-full flex-1 resize-none rounded-lg border border-black/10 bg-white px-3 py-2 text-sm leading-snug text-zinc-900 outline-none placeholder:text-zinc-500/80 focus:border-zinc-400 focus:ring-2 focus:ring-black/10 dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-100 dark:placeholder:text-zinc-400/80 dark:focus:border-zinc-400/60 dark:focus:ring-white/10",
+              "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:[-webkit-appearance:none] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-zinc-600/50 [&::-webkit-scrollbar-thumb]:shadow-sm [&::-webkit-scrollbar-thumb]:dark:bg-zinc-400/50",
+            )}
           />
 
           <div className="flex justify-end">
